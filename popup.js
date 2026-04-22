@@ -10,10 +10,10 @@
 'use strict';
 const $ = id => document.getElementById(id);
 
-let files      = [];
-let portKey    = null;   // just the port number, e.g. "5500"  (shared between localhost & 127.0.0.1)
-let repo       = null;
-let busy       = false;
+let files = [];
+let portKey = null;   // just the port number, e.g. "5500"  (shared between localhost & 127.0.0.1)
+let repo = null;
+let busy = false;
 
 // ══════════════════════════════════════════
 //  BOOT
@@ -29,7 +29,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 function showScreen(s) {
   $('setupScreen').style.display = s === 'setup' ? 'block' : 'none';
-  $('mainScreen').style.display  = s === 'main'  ? 'block' : 'none';
+  $('mainScreen').style.display = s === 'main' ? 'block' : 'none';
 }
 
 // ══════════════════════════════════════════
@@ -65,12 +65,12 @@ function bindSetup() {
 //  MAIN SCREEN BINDINGS
 // ══════════════════════════════════════════
 function bindMain() {
-  $('gearBtn').onclick     = () => { showScreen('setup'); bindSetup(); };
+  $('gearBtn').onclick = () => { showScreen('setup'); bindSetup(); };
   $('repoEditBtn').onclick = showRepoPicker;
-  $('scanBtn').onclick     = () => scanTab(false);
-  $('aiBtn').onclick       = generateMsg;
-  $('clearBtn').onclick    = () => $('commitMsg').value = '';
-  $('pushBtn').onclick     = push;
+  $('scanBtn').onclick = () => scanTab(false);
+  $('aiBtn').onclick = generateMsg;
+  $('clearBtn').onclick = () => $('commitMsg').value = '';
+  $('pushBtn').onclick = push;
 }
 
 // Restore the repo that was last used for the current tab's port
@@ -116,10 +116,10 @@ function getBase(url) {
 function setRepoPill(state, text) {
   const dot = $('repoDot');
   dot.className = 'repo-dot' +
-    (state === 'ok'   ? ' ok'   :
-     state === 'warn' ? ' warn' :
-     state === 'spin' ? ' spin' : '');
-  $('repoLabel').className  = state === 'ok' ? 'ok' : state === 'warn' ? 'warn' : '';
+    (state === 'ok' ? ' ok' :
+      state === 'warn' ? ' warn' :
+        state === 'spin' ? ' spin' : '');
+  $('repoLabel').className = state === 'ok' ? 'ok' : state === 'warn' ? 'warn' : '';
   $('repoLabel').textContent = text;
 }
 
@@ -169,8 +169,39 @@ async function scanTab(auto = false) {
     const base = getBase(tab.url);
     portKey = getPort(tab.url);
 
-    // ── 1. Scrape page DOM for basic info & paths ─────────────────────
-    setStatus('Collecting info from page…');
+    // ── 1. Resolve repo ───────────────────────────────────────────────
+    const { repos = {} } = await store('repos');
+
+    if (!repos[portKey]) {
+      // Try .git/config first (works with Python http.server, some other servers)
+      setStatus('Reading .git/config…');
+      const gitInfo = await tryGitConfig(base);
+
+      if (gitInfo) {
+        const branch = await tryGitHead(base);
+        repo = { owner: gitInfo.owner, name: gitInfo.name, branch };
+        repos[portKey] = repo;
+        await chrome.storage.local.set({ repos, activePort: portKey });
+        setRepoPill('ok', `${repo.owner}/${repo.name}  [${repo.branch}]`);
+        toast(`✓ Repo auto-detected: ${repo.owner}/${repo.name}`, 'ok');
+      } else {
+        // Cannot auto-detect → show repo picker
+        setRepoPill('warn', 'Select your GitHub repo');
+        setStatus('');
+        btn.disabled = false;
+        $('scanIcon').style.cssText = '';
+        // show picker; after the user picks, picker calls scanTab again
+        await showRepoPicker();
+        return;
+      }
+    } else {
+      // Use cached repo for this port
+      repo = repos[portKey];
+      setRepoPill('ok', `${repo.owner}/${repo.name}  [${repo.branch}]`);
+    }
+
+    // ── 2. Scrape page DOM for all file paths ─────────────────────────
+    setStatus('Collecting files from page…');
 
     const [{ result: scrape }] = await chrome.scripting.executeScript({
       target: { tabId: tab.id },
@@ -196,61 +227,15 @@ async function scanTab(auto = false) {
         });
         const SKIP = [/^_next\//, /^\.next\//, /^__vite__/, /^@vite\//, /^@fs\//, /node_modules/, /chunks?\//, /webpack/, /hot-update/, /\.[a-f0-9]{8,}\./, /^\.git\//];
         const paths = [...out].filter(p => p.length > 0 && !SKIP.some(r => r.test(p))).slice(0, 60);
-        
-        return { 
-          paths, 
-          page: location.pathname.replace(/^\//, '') || 'index.html',
-          title: document.title || 'Untitled',
-          isNext: document.documentElement.innerHTML.includes('_next/')
-        };
+        // HTML page itself
+        const page = location.pathname.replace(/^\//, '') || 'index.html';
+        return { paths, page };
       }
     });
 
-    const pageTitle = scrape?.title || 'Unknown';
-    const isNextJs  = scrape?.isNext || false;
-
     // Combine page HTML + linked assets, deduplicate
-    const pageFile  = scrape?.page || 'index.html';
-    const allPaths  = Array.from(new Set([pageFile, ...(scrape?.paths || [])])).filter(Boolean);
-
-    // ── 2. Resolve repo ───────────────────────────────────────────────
-    const { repos = {} } = await store('repos');
-
-    // Always attempt fresh .git/config read first to catch project switches on the same port
-    setStatus('Checking .git/config…');
-    const gitInfo = await tryGitConfig(base);
-
-    if (gitInfo) {
-      const branch = await tryGitHead(base);
-      const isNewPattern = repos[portKey] ? `${repos[portKey].owner}/${repos[portKey].name}` : null;
-      
-      repo = { owner: gitInfo.owner, name: gitInfo.name, branch, fingerprint: 'git' };
-      repos[portKey] = repo;
-      await chrome.storage.local.set({ repos, activePort: portKey });
-      setRepoPill('ok', `${repo.owner}/${repo.name}  [${repo.branch}]`);
-      
-      if (isNewPattern !== `${repo.owner}/${repo.name}`) {
-         toast(`✓ Repository changed: ${repo.owner}/${repo.name}`, 'ok');
-      }
-    } else if (repos[portKey] && (repos[portKey].fingerprint === pageTitle || repos[portKey].fingerprint === 'git')) {
-      // Cache fallback if .git/config isn't readable (Next.js), ONLY if project title matched what we saved!
-      repo = repos[portKey];
-      setRepoPill('ok', `${repo.owner}/${repo.name}  [${repo.branch}]`);
-    } else {
-      // Cannot auto-detect and project fingerprint broke the cache → force repo picker
-      setRepoPill('warn', 'Select GitHub repo for this project');
-      setStatus('');
-      btn.disabled = false;
-      $('scanIcon').style.cssText = '';
-      window.currentFingerprint = pageTitle; // Used to seed the save cache
-      await showRepoPicker();
-      return;
-    }
-
-    if (isNextJs && !auto && allPaths.length <= 2) {
-       // Warn heavily that they must use Manual Input for nextjs
-       toast('Next.js dev blocks file reads — Type paths manually to push', 'warn');
-    }
+    const pageFile = scrape?.page || 'index.html';
+    const allPaths = Array.from(new Set([pageFile, ...(scrape?.paths || [])])).filter(Boolean);
 
     // ── 3. Check each file against GitHub ──────────────────────────────
     // We DON'T compare content (was causing false "up to date").
@@ -282,18 +267,11 @@ async function scanTab(auto = false) {
           try {
             const localRes = await fetch(`${base}/${filePath}`);
             if (localRes.ok) {
-              const localBuf = await localRes.arrayBuffer();
+              const localText = await localRes.text();
               const ghData = await ghRes.json();
-              const ghB64 = (ghData.content || '').replace(/\s/g, '');
-              const isBinary = filePath.match(/\.(png|jpe?g|gif|webp|ico|woff2?|ttf|eot|mp4|webm|pdf|zip|wasm|mp3|wav)$/i);
-              
-              if (isBinary) {
-                const localB64 = await bufferToBase64(localBuf);
-                if (localB64 !== ghB64) state = 'modified';
-              } else {
-                const localText = new TextDecoder('utf-8').decode(localBuf);
-                const ghText = b64decode(ghB64);
-                if (normalise(localText) !== normalise(ghText)) state = 'modified';
+              const ghText = b64decode(ghData.content || '');
+              if (normalise(localText) !== normalise(ghText)) {
+                state = 'modified';
               }
             } else {
               state = 'modified'; // can't fetch locally → include to be safe
@@ -316,7 +294,7 @@ async function scanTab(auto = false) {
     renderFiles();
 
     const changed = result.filter(f => f.state !== 'synced').length;
-    const synced  = result.filter(f => f.state === 'synced').length;
+    const synced = result.filter(f => f.state === 'synced').length;
 
     if (changed > 0) {
       const news = result.filter(f => f.state === 'new').length;
@@ -359,15 +337,6 @@ function b64decode(b64) {
   }
 }
 
-async function bufferToBase64(buffer) {
-  return new Promise((resolve) => {
-    const blob = new Blob([buffer]);
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(',')[1]);
-    reader.readAsDataURL(blob);
-  });
-}
-
 function setStatus(msg) {
   const el = $('statusMsg');
   if (el) { el.textContent = msg; el.style.display = msg ? 'block' : 'none'; }
@@ -397,20 +366,12 @@ async function addManualPaths() {
           else if (res.ok && base) {
             const lRes = await fetch(`${base}/${p}`);
             if (lRes.ok) {
-              const localBuf = await lRes.arrayBuffer();
+              const lText = await lRes.text();
               const ghData = await res.json();
-              const ghB64 = (ghData.content || '').replace(/\s/g, '');
-              const isBinary = p.match(/\.(png|jpe?g|gif|webp|ico|woff2?|ttf|eot|mp4|webm|pdf|zip|wasm|mp3|wav)$/i);
-
-              if (isBinary) {
-                if ((await bufferToBase64(localBuf)) === ghB64) state = 'synced';
-              } else {
-                const lText = new TextDecoder('utf-8').decode(localBuf);
-                if (normalise(lText) === normalise(b64decode(ghB64))) state = 'synced';
-              }
+              if (normalise(lText) === normalise(b64decode(ghData.content || ''))) state = 'synced';
             }
           }
-        } catch {}
+        } catch { }
       }
     }
     files.push({ path: p, state, checked: state !== 'synced' });
@@ -502,10 +463,9 @@ async function showRepoPicker() {
 
 async function saveRepo(ghRepo) {
   repo = {
-    owner:  ghRepo.owner.login,
-    name:   ghRepo.name,
-    branch: ghRepo.default_branch || 'main',
-    fingerprint: window.currentFingerprint || 'Unknown' 
+    owner: ghRepo.owner.login,
+    name: ghRepo.name,
+    branch: ghRepo.default_branch || 'main'
   };
   const { repos = {} } = await store('repos');
   repos[portKey || 'default'] = repo;
@@ -522,7 +482,7 @@ function renderFiles() {
 
   // Separate changed vs synced
   const changed = files.filter(f => f.state !== 'synced');
-  const synced  = files.filter(f => f.state === 'synced');
+  const synced = files.filter(f => f.state === 'synced');
 
   // Show changed files first, then synced (dimmed)
   const ordered = [...changed, ...synced];
@@ -546,9 +506,9 @@ function renderFiles() {
 
     const bd = document.createElement('span');
     bd.className = `fbadge${f.state === 'new' ? ' new' : ''}`;
-    if (f.state === 'new')      bd.textContent = 'new';
-    else if (f.state === 'synced')   bd.textContent = '✓';
-    else if (f.state === 'unknown')  bd.textContent = '?';
+    if (f.state === 'new') bd.textContent = 'new';
+    else if (f.state === 'synced') bd.textContent = '✓';
+    else if (f.state === 'unknown') bd.textContent = '?';
     else bd.textContent = f.path.split('.').pop()?.toLowerCase() || 'file';
 
     const dl = document.createElement('button');
@@ -569,8 +529,8 @@ async function generateMsg() {
   if (!selected.length) { toast('Select files first', 'err'); return; }
   btn.textContent = '⟳…'; btn.disabled = true;
 
-  const map = { js:'feat', ts:'feat', jsx:'feat', tsx:'feat', css:'style', scss:'style', md:'docs', html:'feat', json:'chore', py:'feat', sh:'chore', vue:'feat', svelte:'feat' };
-  const ext  = selected[0].split('.').pop()?.toLowerCase() || '';
+  const map = { js: 'feat', ts: 'feat', jsx: 'feat', tsx: 'feat', css: 'style', scss: 'style', md: 'docs', html: 'feat', json: 'chore', py: 'feat', sh: 'chore', vue: 'feat', svelte: 'feat' };
+  const ext = selected[0].split('.').pop()?.toLowerCase() || '';
   const type = map[ext] || 'chore';
   const list = selected.slice(0, 2).join(', ') + (selected.length > 2 ? ` +${selected.length - 2}` : '');
   $('commitMsg').value = `${type}: update ${list}`;
@@ -583,15 +543,15 @@ async function generateMsg() {
 // ══════════════════════════════════════════
 async function push() {
   if (busy) return;
-  const msg      = $('commitMsg').value.trim();
+  const msg = $('commitMsg').value.trim();
   const selected = files.filter(f => f.checked !== false);
 
   if (!selected.length) { toast('No files selected', 'err'); return; }
-  if (!msg)              { toast('Enter a commit message', 'err'); return; }
-  if (!repo)             { toast('Select a repo first', 'err'); showRepoPicker(); return; }
+  if (!msg) { toast('Enter a commit message', 'err'); return; }
+  if (!repo) { toast('Select a repo first', 'err'); showRepoPicker(); return; }
 
   const { token } = await store('token');
-  if (!token)            { toast('GitHub token required', 'err'); showScreen('setup'); bindSetup(); return; }
+  if (!token) { toast('GitHub token required', 'err'); showScreen('setup'); bindSetup(); return; }
 
   busy = true;
   $('pushBtn').disabled = true;
@@ -606,7 +566,7 @@ async function push() {
   try {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     if (tab?.url && isLocalUrl(tab.url)) base = getBase(tab.url);
-  } catch {}
+  } catch { }
 
   if (!base) {
     log('err', '✗ No local server tab found');
@@ -637,18 +597,8 @@ async function push() {
       try {
         const r = await fetch(`${base}/${f.path}`);
         if (!r.ok) { log('err', `⚠ skip ${f.path} (${r.status})`); continue; }
-        const buf = await r.arrayBuffer();
-        const isBinary = f.path.match(/\.(png|jpe?g|gif|webp|ico|woff2?|ttf|eot|mp4|webm|pdf|zip|wasm|mp3|wav)$/i);
-
-        if (isBinary) {
-          log('hi', `… buffering ${f.path}`);
-          const b64 = await bufferToBase64(buf);
-          const blobRes = await ghPost(token, `/repos/${owner}/${name}/git/blobs`, { content: b64, encoding: 'base64' });
-          treeItems.push({ path: f.path, mode: '100644', type: 'blob', sha: blobRes.sha });
-        } else {
-          const content = new TextDecoder('utf-8').decode(buf);
-          treeItems.push({ path: f.path, mode: '100644', type: 'blob', content });
-        }
+        const content = await r.text();
+        treeItems.push({ path: f.path, mode: '100644', type: 'blob', content });
         log('ok', `✓ ${f.path}`);
       } catch (e) {
         log('err', `⚠ skip ${f.path}: ${e.message}`);
@@ -658,7 +608,7 @@ async function push() {
     if (!treeItems.length) throw new Error('No files could be read from local server');
 
     // Create tree → commit → update ref
-    const tree   = await ghPost(token, `/repos/${owner}/${name}/git/trees`,  { base_tree: baseTree, tree: treeItems });
+    const tree = await ghPost(token, `/repos/${owner}/${name}/git/trees`, { base_tree: baseTree, tree: treeItems });
     const commit = await ghPost(token, `/repos/${owner}/${name}/git/commits`, { message: msg, tree: tree.sha, parents: [latestSha] });
     await ghFetch(token, `/repos/${owner}/${name}/git/refs/heads/${branch}`, 'PATCH', { sha: commit.sha });
 
@@ -690,8 +640,8 @@ function ghFetch(token, endpoint, method = 'GET', body = null) {
     method,
     headers: {
       Authorization: `Bearer ${token}`,
-      Accept:        'application/vnd.github+json',
-      'Content-Type':'application/json',
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
       'X-GitHub-Api-Version': '2022-11-28'
     },
     body: body ? JSON.stringify(body) : null
@@ -705,8 +655,8 @@ async function ghPost(token, endpoint, body) {
 }
 
 function store(...keys) { return chrome.storage.local.get(keys); }
-function showLog()      { $('logBox').style.display = 'block'; }
-function clearLog()     { $('logBody').innerHTML = ''; }
+function showLog() { $('logBox').style.display = 'block'; }
+function clearLog() { $('logBody').innerHTML = ''; }
 function log(cls, text) {
   const el = document.createElement('div');
   el.className = `ll ${cls}`; el.textContent = text;
