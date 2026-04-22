@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "LocalPush",
+  "version": "3.0.0",
+  "description": "Auto-scan localhost, read .git/config, commit & push to GitHub. No terminal needed.",
+  "permissions": ["storage", "scripting", "tabs"],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*",
+    "http://0.0.0.0/*",
+    "https://api.github.com/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "LocalPush"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}

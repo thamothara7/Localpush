@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>LocalPush</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:#0b0b10; --surface:#13131c; --border:#252535;
+      --accent:#7c6fff; --accent2:#ff6b9d;
+      --green:#4fffb0; --red:#ff4d6d; --yellow:#ffd166;
+      --text:#e8e8f0; --muted:#5a5a72;
+    }
+    *{box-sizing:border-box;margin:0;padding:0;}
+    body{width:360px;background:var(--bg);color:var(--text);font-family:'Syne',sans-serif;}
+    body::before{content:'';position:fixed;inset:0;
+      background-image:linear-gradient(rgba(124,111,255,.03) 1px,transparent 1px),linear-gradient(90deg,rgba(124,111,255,.03) 1px,transparent 1px);
+      background-size:22px 22px;pointer-events:none;}
+    .wrap{position:relative;z-index:1;}
+
+    /* header */
+    header{padding:15px 18px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;}
+    .logo{width:30px;height:30px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:7px;display:flex;align-items:center;justify-content:center;font-size:14px;box-shadow:0 0 16px rgba(124,111,255,.4);flex-shrink:0;}
+    header h1{font-size:16px;font-weight:800;letter-spacing:-.3px;background:linear-gradient(120deg,#fff 30%,var(--accent));-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+    header p{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);margin-top:1px;}
+    .gear{margin-left:auto;background:none;border:1px solid var(--border);border-radius:6px;color:var(--muted);width:26px;height:26px;cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;transition:all .2s;}
+    .gear:hover{color:var(--accent);border-color:var(--accent);}
+
+    /* repo bar */
+    .repo-bar{padding:8px 18px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:10px;}
+    .repo-dot{width:6px;height:6px;border-radius:50%;background:var(--muted);flex-shrink:0;transition:all .3s;}
+    .repo-dot.ok{background:var(--green);box-shadow:0 0 5px var(--green);}
+    .repo-dot.warn{background:var(--yellow);}
+    .repo-dot.spin{background:var(--accent);animation:pulse 1s infinite;}
+    @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+    #repoLabel{color:var(--muted);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    #repoLabel.ok{color:var(--green);}
+    #repoLabel.warn{color:var(--yellow);}
+    .repo-edit{background:none;border:none;color:var(--muted);cursor:pointer;font-size:11px;white-space:nowrap;font-family:'JetBrains Mono',monospace;padding:0;transition:color .2s;}
+    .repo-edit:hover{color:var(--accent);}
+
+    /* sections */
+    .section{padding:13px 18px;border-bottom:1px solid var(--border);}
+    .sec-label{font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:1.5px;margin-bottom:9px;display:flex;align-items:center;gap:6px;}
+    .sec-label::before{content:'';width:3px;height:9px;background:var(--accent);border-radius:2px;}
+
+    /* repo input inline */
+    .repo-input-row{display:flex;gap:6px;margin-top:8px;}
+    .repo-input-row input{flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:7px 10px;outline:none;transition:border-color .2s;}
+    .repo-input-row input:focus{border-color:var(--accent);}
+    .repo-input-row input::placeholder{color:var(--muted);opacity:.5;}
+    .btn-set{background:var(--accent);border:none;border-radius:6px;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:7px 12px;cursor:pointer;white-space:nowrap;transition:opacity .2s;}
+    .btn-set:hover{opacity:.85;}
+
+    /* file list */
+    .file-list{background:var(--surface);border:1px solid var(--border);border-radius:7px;max-height:150px;overflow-y:auto;}
+    .file-list::-webkit-scrollbar{width:3px;}
+    .file-list::-webkit-scrollbar-thumb{background:var(--border);}
+    .file-empty{padding:20px;text-align:center;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);}
+    .file-item{display:flex;align-items:center;gap:8px;padding:7px 10px;border-bottom:1px solid rgba(37,37,53,.6);transition:background .12s;}
+    .file-item:last-child{border-bottom:none;}
+    .file-item:hover{background:rgba(124,111,255,.07);}
+    .file-item input[type=checkbox]{width:auto;accent-color:var(--accent);cursor:pointer;flex-shrink:0;}
+    .fname{font-family:'JetBrains Mono',monospace;font-size:11px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+    .fbadge{font-family:'JetBrains Mono',monospace;font-size:9px;padding:1px 5px;border-radius:3px;background:rgba(124,111,255,.15);color:var(--accent);}
+    .fbadge.new{background:rgba(79,255,176,.15);color:var(--green);}
+    .fdel{background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;line-height:1;padding:0 2px;transition:color .15s;}
+    .fdel:hover{color:var(--red);}
+
+    /* scan btn */
+    .btn-scan{width:100%;margin-top:8px;padding:8px;background:transparent;border:1px dashed var(--border);border-radius:6px;color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:11px;cursor:pointer;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:6px;}
+    .btn-scan:hover{border-color:var(--accent);color:var(--accent);background:rgba(124,111,255,.05);}
+
+    /* commit msg */
+    .msg-tools{display:flex;gap:6px;margin-bottom:6px;}
+    .chip{padding:4px 10px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:10px;cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:4px;}
+    .chip-ai{background:linear-gradient(135deg,rgba(124,111,255,.2),rgba(255,107,157,.2));border:1px solid rgba(124,111,255,.3);color:var(--accent);}
+    .chip-ai:hover{border-color:var(--accent);}
+    .chip-clear{background:transparent;border:1px solid var(--border);color:var(--muted);}
+    .chip-clear:hover{border-color:var(--red);color:var(--red);}
+    textarea{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;padding:9px 11px;resize:vertical;min-height:60px;max-height:110px;outline:none;transition:border-color .2s,box-shadow .2s;}
+    textarea:focus{border-color:var(--accent);box-shadow:0 0 0 2px rgba(124,111,255,.14);}
+    textarea::placeholder{color:var(--muted);opacity:.6;}
+
+    /* push btn */
+    .btn-push{display:flex;align-items:center;justify-content:center;gap:8px;width:calc(100% - 36px);margin:13px 18px 0;padding:13px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:8px;color:#fff;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;position:relative;overflow:hidden;}
+    .btn-push::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.15),transparent);opacity:0;transition:opacity .2s;}
+    .btn-push:hover::before{opacity:1;}
+    .btn-push:hover{transform:translateY(-1px);box-shadow:0 8px 24px rgba(124,111,255,.4);}
+    .btn-push:active{transform:none;}
+    .btn-push:disabled{opacity:.4;cursor:not-allowed;transform:none;box-shadow:none;}
+
+    /* log */
+    .log-box{margin:10px 18px 16px;background:var(--surface);border:1px solid var(--border);border-radius:7px;overflow:hidden;}
+    .log-bar{padding:5px 10px;background:rgba(124,111,255,.08);border-bottom:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--accent);}
+    .log-body{padding:8px 10px;max-height:100px;overflow-y:auto;font-family:'JetBrains Mono',monospace;font-size:10px;line-height:1.8;}
+    .log-body::-webkit-scrollbar{width:3px;}
+    .log-body::-webkit-scrollbar-thumb{background:var(--border);}
+    .ll{color:var(--muted);}.ll.ok{color:var(--green);}.ll.err{color:var(--red);}.ll.hi{color:var(--accent);}
+
+    @keyframes spin{to{transform:rotate(360deg);}}
+    .spinner{width:13px;height:13px;border:2px solid rgba(255,255,255,.25);border-top-color:#fff;border-radius:50%;animation:spin .65s linear infinite;}
+
+    /* toast */
+    .toast{position:fixed;bottom:14px;left:50%;transform:translateX(-50%) translateY(50px);background:var(--surface);border:1px solid var(--border);border-radius:6px;padding:7px 14px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--text);white-space:nowrap;z-index:99;transition:transform .3s cubic-bezier(.34,1.56,.64,1);}
+    .toast.show{transform:translateX(-50%) translateY(0);}
+    .toast.ok{border-color:var(--green);color:var(--green);}
+    .toast.err{border-color:var(--red);color:var(--red);}
+
+    /* setup screen */
+    #setupScreen{padding:24px 20px;}
+    .setup-title{font-size:17px;font-weight:800;margin-bottom:6px;}
+    .setup-sub{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted);margin-bottom:20px;line-height:1.6;}
+    .setup-sub a{color:var(--accent);text-decoration:none;}
+    .setup-sub a:hover{text-decoration:underline;}
+    .field-label{font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:5px;display:block;}
+    .field-wrap{position:relative;margin-bottom:12px;}
+    .field-wrap input{width:100%;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;padding:9px 36px 9px 11px;outline:none;transition:border-color .2s;}
+    .field-wrap input:focus{border-color:var(--accent);}
+    .field-wrap input::placeholder{color:var(--muted);opacity:.5;}
+    .eye{position:absolute;right:9px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;font-size:13px;}
+    .btn-save{width:100%;padding:12px;margin-top:4px;background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;border-radius:7px;color:#fff;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer;transition:all .2s;}
+    .btn-save:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(124,111,255,.35);}
+
+    .pad{height:16px;}
+  </style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- SETUP -->
+  <div id="setupScreen" style="display:none">
+    <div class="setup-title">Welcome to LocalPush</div>
+    <p class="setup-sub">
+      One-time setup. Token is stored locally only.<br><br>
+      <a href="https://github.com/settings/tokens/new?scopes=repo&description=LocalPush" target="_blank">Create a GitHub token</a> with <code>repo</code> scope.
+    </p>
+    <label class="field-label">GITHUB PERSONAL ACCESS TOKEN</label>
+    <div class="field-wrap">
+      <input type="password" id="setupToken" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" />
+      <button class="eye" id="setupEye">👁</button>
+    </div>
+    <button class="btn-save" id="setupSave">Save & Continue →</button>
+  </div>
+
+  <!-- MAIN -->
+  <div id="mainScreen" style="display:none">
+    <header>
+      <div class="logo">⬡</div>
+      <div><h1>LocalPush</h1><p>scan · commit · push</p></div>
+      <button class="gear" id="gearBtn" title="Change token">⚙</button>
+    </header>
+
+    <div class="repo-bar">
+      <div class="repo-dot" id="repoDot"></div>
+      <span id="repoLabel">No repo set</span>
+      <button class="repo-edit" id="repoEditBtn">change</button>
+    </div>
+
+    <div class="section">
+      <div class="sec-label">Files</div>
+      <div class="file-list" id="fileList">
+        <div class="file-empty" id="fileEmpty">Auto-scanning… open a localhost tab</div>
+      </div>
+      <button class="btn-scan" id="scanBtn">
+        <span id="scanIcon">⟳</span> Re-scan active tab
+      </button>
+      <div id="statusMsg" style="display:none;margin-top:8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);text-align:center;"></div>
+
+      <!-- Manual input — shown when DOM scan finds nothing (e.g. Next.js) -->
+      <div id="manualSection" style="margin-top:10px;">
+        <div style="font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted);margin-bottom:6px;">
+          Add file paths manually (comma separated):
+        </div>
+        <div style="display:flex;gap:6px;">
+          <input id="manualInput" type="text" placeholder="src/app/page.tsx, styles/globals.css"
+            style="flex:1;background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:11px;padding:7px 10px;outline:none;transition:border-color .2s;"
+            onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'"
+            onkeydown="if(event.key==='Enter') addManualPaths()" />
+          <button onclick="addManualPaths()"
+            style="background:var(--accent);border:none;border-radius:6px;color:#fff;font-family:'JetBrains Mono',monospace;font-size:11px;padding:7px 12px;cursor:pointer;white-space:nowrap;">
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="sec-label">Commit Message</div>
+      <div class="msg-tools">
+        <button class="chip chip-ai" id="aiBtn">✦ Generate</button>
+        <button class="chip chip-clear" id="clearBtn">✕ Clear</button>
+      </div>
+      <textarea id="commitMsg" placeholder="feat: describe what changed…"></textarea>
+    </div>
+
+    <button class="btn-push" id="pushBtn">
+      <span id="btnIcon">↑</span>
+      <span id="btnText">Commit & Push</span>
+    </button>
+
+    <div class="log-box" id="logBox" style="display:none">
+      <div class="log-bar">⬡ OUTPUT</div>
+      <div class="log-body" id="logBody"></div>
+    </div>
+    <div class="pad"></div>
+  </div>
+
+</div>
+<div class="toast" id="toast"></div>
+<script src="popup.js"></script>
+</body>
+</html>
